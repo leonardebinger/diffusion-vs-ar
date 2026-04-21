@@ -67,7 +67,7 @@ src/train_bash.py \
     --gradient_accumulation_steps 16 \
     --lr_scheduler_type cosine \
     --logging_steps 1 \
-    --val_size 448 \
+    --val_size 0.05 \
     --per_device_eval_batch_size 32 \
     --evaluation_strategy steps \
     --eval_steps 100 \

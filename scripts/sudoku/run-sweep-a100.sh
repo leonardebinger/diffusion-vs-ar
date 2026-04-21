@@ -46,12 +46,10 @@ if ! [[ "$n_full" =~ ^[0-9]+$ ]]; then
 fi
 n_div10=$(( n_full / 10 ))
 n_div100=$(( n_full / 100 ))
-n_div1000=$(( n_full / 1000 ))
-echo "dataset size: full=$n_full  /10=$n_div10  /100=$n_div100  /1000=$n_div1000" | tee -a "$sweep_log"
+echo "dataset size: full=$n_full  /10=$n_div10  /100=$n_div100" | tee -a "$sweep_log"
 
 # (MAX_SAMPLES, tag) pairs; empty MAX_SAMPLES = full dataset. Smallest first.
 runs=(
-    "$n_div1000   Ndiv1000"
     "$n_div100    Ndiv100"
     "$n_div10     Ndiv10"
     ""            #full
