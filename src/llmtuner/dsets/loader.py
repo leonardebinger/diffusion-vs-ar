@@ -65,7 +65,7 @@ def get_dataset(
         
         if max_samples is not None:
             max_samples_temp = min(len(dataset), max_samples)
-            dataset = dataset.select(range(max_samples_temp))
+            dataset = dataset.shuffle(seed=data_args.seed).select(range(max_samples_temp))
 
         # TODO: adapt to the sharegpt format
 
