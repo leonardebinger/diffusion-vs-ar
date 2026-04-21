@@ -48,7 +48,10 @@ def run(
     # Training
     if training_args.do_train:
         if not dist.is_initialized():
-            dist.init_process_group(backend='nccl')
+            try:
+                dist.init_process_group(backend='nccl')
+            except ValueError:
+                pass  # single-process run: no distributed env, nothing to init
 
         train_result = trainer.train(resume_from_checkpoint=training_args.resume_from_checkpoint)
         trainer.log_metrics("train", train_result.metrics)
