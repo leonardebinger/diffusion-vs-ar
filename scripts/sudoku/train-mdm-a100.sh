@@ -18,6 +18,18 @@ set -euo pipefail
 
 export WANDB_DISABLED=true
 
+# Ensure the `diffusion` conda env is first on PATH regardless of outer shell state.
+# tmux sessions often drop back to base env, which breaks the plain `python3` call
+# used by the --do_predict step below.
+diff_env_bin="${CONDA_DIFFUSION_BIN:-$HOME/miniconda3/envs/diffusion/bin}"
+if [[ -d "$diff_env_bin" ]]; then
+    export PATH="$diff_env_bin:$PATH"
+else
+    echo "warning: diffusion env bin not found at $diff_env_bin" >&2
+fi
+echo "python3 = $(which python3)"
+echo "accelerate = $(which accelerate)"
+
 EPOCHS="${EPOCHS:-300}"
 SEED="${SEED:-42}"
 GPU="${GPU:-3}"
