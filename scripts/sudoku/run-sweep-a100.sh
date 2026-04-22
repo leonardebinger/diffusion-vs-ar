@@ -1,58 +1,56 @@
 #!/usr/bin/env bash
-# Baseline data-efficiency sweep on single A100.
-# Runs 4 MDM trainings sequentially: 1k, 10k, 100k, full (unset MAX_SAMPLES).
-# All other hyperparameters paper-matching via train-mdm-a100.sh.
+# Data-efficiency sweep on single A100, compute-matched.
+# 5 training-set sizes × same MAX_STEPS. Works for baseline and rule-loss conditions.
+#
+# Env vars (all optional):
+#   SEED                subsample + HF seed        (default: 42)
+#   GPU                 CUDA device index          (default: 3)
+#   MAX_STEPS           cap optimizer steps        (default: 27600 = Nfull @ 300 epochs)
+#   RUNS_DIR            log/ckpt root              (default: $HOME/logs)
+#   DATASET_DIR         data folder                (default: $HOME/datasets/data/)
+#   RULE_LOSS_WEIGHT    if set & > 0 → rule-loss run; else baseline
+#   SWEEP_TAG           override default name for the sweep dir
 set -euo pipefail
 
 export WANDB_DISABLED=true
 
 SEED="${SEED:-42}"
 GPU="${GPU:-3}"
-EPOCHS="${EPOCHS:-300}"
+MAX_STEPS="${MAX_STEPS:-27600}"
 RUNS_DIR="${RUNS_DIR:-$HOME/logs}"
 DATASET_DIR="${DATASET_DIR:-$HOME/datasets/data/}"
 
-sweep_name="sudoku-mdm-sweep-s${SEED}-ep${EPOCHS}-$(date +%Y%m%d-%H%M%S)"
+# Condition: baseline or ruleloss-lam<λ>
+if [[ -n "${RULE_LOSS_WEIGHT:-}" && "${RULE_LOSS_WEIGHT}" != "0" && "${RULE_LOSS_WEIGHT}" != "0.0" ]]; then
+    condition="ruleloss-lam${RULE_LOSS_WEIGHT}"
+else
+    condition="baseline"
+    unset RULE_LOSS_WEIGHT
+fi
+
+SWEEP_TAG="${SWEEP_TAG:-${condition}-s${SEED}-steps${MAX_STEPS}}"
+sweep_name="sudoku-mdm-sweep-${SWEEP_TAG}-$(date +%Y%m%d-%H%M%S)"
 sweep_dir="$RUNS_DIR/$sweep_name"
 mkdir -p "$sweep_dir"
 
 sweep_log="$sweep_dir/sweep.log"
-echo "sweep_dir = $sweep_dir" | tee -a "$sweep_log"
+echo "sweep_dir        = $sweep_dir" | tee -a "$sweep_log"
+echo "condition        = $condition" | tee -a "$sweep_log"
+echo "MAX_STEPS        = $MAX_STEPS" | tee -a "$sweep_log"
+echo "RULE_LOSS_WEIGHT = ${RULE_LOSS_WEIGHT:-0.0}" | tee -a "$sweep_log"
 
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 repo_root="$(cd "$script_dir/../.." && pwd)"
 cd "$repo_root"
 
-# Probe the full dataset size once, then derive sweep sizes as full/1000, full/100, full/10, full.
-n_full=$(DATASET_DIR="$DATASET_DIR" python3 - <<'PY'
-import json, os, sys
-from datasets import load_dataset
-root = os.environ['DATASET_DIR']
-info = json.load(open(os.path.join(root, 'dataset_info.json')))
-entry = info['sudoku_train']
-fname = entry['file_name']
-path = os.path.join(root, fname)
-ext = fname.rsplit('.', 1)[-1].lower()
-type_map = {'json': 'json', 'jsonl': 'json', 'csv': 'csv', 'txt': 'text', 'tsv': 'csv'}
-if ext not in type_map:
-    print(f"unknown extension: {ext}", file=sys.stderr); sys.exit(1)
-ds = load_dataset(type_map[ext], data_files=path, split='train')
-print(len(ds))
-PY
-)
-if ! [[ "$n_full" =~ ^[0-9]+$ ]]; then
-    echo "failed to determine dataset size; got: $n_full" | tee -a "$sweep_log"
-    exit 1
-fi
-n_div10=$(( n_full / 10 ))
-n_div100=$(( n_full / 100 ))
-echo "dataset size: full=$n_full  /10=$n_div10  /100=$n_div100" | tee -a "$sweep_log"
-
-# (MAX_SAMPLES, tag) pairs; empty MAX_SAMPLES = full dataset. Smallest first.
+# Fixed 5-point sweep: {1k, 3k, 10k, 30k, full=100k}. Smallest first so the pipeline is
+# de-risked on a cheap run before committing to the full one.
 runs=(
-    "$n_div100    Ndiv100"
-    "$n_div10     Ndiv10"
-    ""            #full
+    "1000    N1k"
+    "3000    N3k"
+    "10000   N10k"
+    "30000   N30k"
+    ""       #full (Nfull)
 )
 
 for spec in "${runs[@]}"; do
@@ -67,28 +65,36 @@ for spec in "${runs[@]}"; do
     run_dir="$sweep_dir/$tag"
     mkdir -p "$run_dir"
 
-    echo "==== $(date -Is)  starting $tag  (MAX_SAMPLES=${MAX_SAMPLES:-full}) ====" | tee -a "$sweep_log"
+    echo "==== $(date -Is)  starting $tag  (MAX_SAMPLES=${MAX_SAMPLES:-full}, MAX_STEPS=$MAX_STEPS) ====" | tee -a "$sweep_log"
 
-    RUN_DIR="$run_dir" \
-    RUN_TAG="$tag" \
-    SEED="$SEED" \
-    GPU="$GPU" \
-    EPOCHS="$EPOCHS" \
-    DATASET_DIR="$DATASET_DIR" \
-    bash scripts/sudoku/train-mdm-a100.sh \
-        || { echo "FAILED at $tag (exit $?)" | tee -a "$sweep_log"; exit 1; }
+    # Forward rule_loss_weight only if set (keeps baseline code path pristine when off)
+    extra_env=()
+    if [[ -n "${RULE_LOSS_WEIGHT:-}" ]]; then
+        extra_env+=(RULE_LOSS_WEIGHT="$RULE_LOSS_WEIGHT")
+    fi
 
-    # Append a one-line summary: tag, N, final predict_acc (parsed from predict_results.json)
+    env \
+        RUN_DIR="$run_dir" \
+        RUN_TAG="$tag" \
+        SEED="$SEED" \
+        GPU="$GPU" \
+        MAX_STEPS="$MAX_STEPS" \
+        DATASET_DIR="$DATASET_DIR" \
+        "${extra_env[@]}" \
+        bash scripts/sudoku/train-mdm-a100.sh \
+            || { echo "FAILED at $tag (exit $?)" | tee -a "$sweep_log"; exit 1; }
+
     acc=$(python3 -c "
-import json, sys
+import json
 try:
     d = json.load(open('$run_dir/sudoku_test/predict_results.json'))
     print(d.get('predict_acc', d.get('predict_accuracy', '?')))
 except Exception as e:
     print(f'parse_err:{e}')
 ")
-    echo "$(date -Is)  done  $tag  N=${MAX_SAMPLES:-full}  test_acc=$acc" | tee -a "$sweep_log" \
-        >> "$sweep_dir/summary.tsv"
+    line="$(date -Is)  done  $tag  N=${MAX_SAMPLES:-full}  steps=$MAX_STEPS  cond=$condition  test_acc=$acc"
+    echo "$line" | tee -a "$sweep_log"
+    echo "$line" >> "$sweep_dir/summary.tsv"
 done
 
 echo "sweep complete: $sweep_dir" | tee -a "$sweep_log"

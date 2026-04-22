@@ -33,6 +33,11 @@ class DiffusionArguments:
         default=False,
         metadata={"help": "use focal loss for token-level reweighting"}
     )
+    rule_loss_weight: float = field(
+        default=0.0,
+        metadata={"help": "λ for the Sudoku rule-based auxiliary loss. "
+                          "0 (default) = baseline (rule loss off)."}
+    )
 
     def __post_init__(self):
         pass

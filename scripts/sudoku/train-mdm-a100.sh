@@ -4,14 +4,16 @@
 # After training, runs --do_predict on sudoku_test.
 #
 # Env vars (all optional):
-#   EPOCHS        training epochs                (default: 300)
-#   MAX_SAMPLES   truncate train set to N rows   (default: unset = full)
-#   SEED          subsample + HF seed            (default: 42)
-#   GPU           CUDA device index              (default: 3)
-#   DATASET_DIR   data folder                    (default: $HOME/datasets/data/)
-#   RUNS_DIR      log/ckpt root                  (default: $HOME/logs)
-#   RUN_DIR      full path for this run's outputs (overrides auto-naming)
-#   RUN_TAG       label inserted into run dir    (default: auto: Nfull | N<MAX_SAMPLES>)
+#   EPOCHS              training epochs               (default: 300; ignored if MAX_STEPS set)
+#   MAX_STEPS           cap optimizer steps           (default: unset = use EPOCHS)
+#   MAX_SAMPLES         truncate train set to N rows  (default: unset = full)
+#   RULE_LOSS_WEIGHT    λ for rule-based aux loss     (default: unset = 0.0 = baseline)
+#   SEED                subsample + HF seed           (default: 42)
+#   GPU                 CUDA device index             (default: 3)
+#   DATASET_DIR         data folder                   (default: $HOME/datasets/data/)
+#   RUNS_DIR            log/ckpt root                 (default: $HOME/logs)
+#   RUN_DIR             full path for this run's outputs (overrides auto-naming)
+#   RUN_TAG             label inserted into run dir   (default: auto)
 set -euo pipefail
 
 export WANDB_DISABLED=true
@@ -31,21 +33,35 @@ else
 fi
 RUN_TAG="${RUN_TAG:-$default_tag}"
 
+if [[ -n "${MAX_STEPS:-}" ]]; then
+    max_steps_arg=(--max_steps "${MAX_STEPS}")
+else
+    max_steps_arg=()
+fi
+
+if [[ -n "${RULE_LOSS_WEIGHT:-}" ]]; then
+    rule_loss_arg=(--rule_loss_weight "${RULE_LOSS_WEIGHT}")
+else
+    rule_loss_arg=()
+fi
+
 if [[ -z "${RUN_DIR:-}" ]]; then
-    run_name="sudoku-mdm-${RUN_TAG}-s${SEED}-ep${EPOCHS}-$(date +%Y%m%d-%H%M%S)"
+    run_name="sudoku-mdm-${RUN_TAG}-s${SEED}-$(date +%Y%m%d-%H%M%S)"
     RUN_DIR="$RUNS_DIR/$run_name"
 fi
 mkdir -p "$RUN_DIR"
 
 {
     echo "==== run config ===="
-    echo "RUN_DIR      = $RUN_DIR"
-    echo "DATASET_DIR  = $DATASET_DIR"
-    echo "EPOCHS       = $EPOCHS"
-    echo "MAX_SAMPLES  = ${MAX_SAMPLES:-(full)}"
-    echo "SEED         = $SEED"
-    echo "GPU          = $GPU"
-    echo "commit       = $(git -C "$(dirname "$0")/../.." rev-parse HEAD 2>/dev/null || echo '?')"
+    echo "RUN_DIR           = $RUN_DIR"
+    echo "DATASET_DIR       = $DATASET_DIR"
+    echo "EPOCHS            = $EPOCHS"
+    echo "MAX_STEPS         = ${MAX_STEPS:-(unset; use epochs)}"
+    echo "MAX_SAMPLES       = ${MAX_SAMPLES:-(full)}"
+    echo "RULE_LOSS_WEIGHT  = ${RULE_LOSS_WEIGHT:-0.0}"
+    echo "SEED              = $SEED"
+    echo "GPU               = $GPU"
+    echo "commit            = $(git -C "$(dirname "$0")/../.." rev-parse HEAD 2>/dev/null || echo '?')"
     echo "===================="
 } | tee "$RUN_DIR/run_config.txt"
 
@@ -89,6 +105,8 @@ src/train_bash.py \
     --gamma 1 \
     --seed "$SEED" \
     "${max_samples_arg[@]}" \
+    "${max_steps_arg[@]}" \
+    "${rule_loss_arg[@]}" \
     2>&1 | tee "$RUN_DIR/train.log"
 
 # ---- Test-set evaluation ----
