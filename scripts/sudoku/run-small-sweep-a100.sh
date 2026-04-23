@@ -46,13 +46,14 @@ script_dir="$(cd "$(dirname "$0")" && pwd)"
 repo_root="$(cd "$script_dir/../.." && pwd)"
 cd "$repo_root"
 
-# Fixed small-N sweep: {100, 300, 1000, 3000}. Smallest first — de-risk pipeline cheaply.
-runs=(
-    "100     N100"
-    "300     N300"
-    "1000    N1000"
-    "3000    N3000"
-)
+# Small-N sweep. Default sizes: {100, 300, 1000, 3000}. Override via SIZES env var:
+#   SIZES="300 1000 3000" bash scripts/sudoku/run-small-sweep-a100.sh
+SIZES_STR="${SIZES:-100 300 1000 3000}"
+runs=()
+for n in $SIZES_STR; do
+    runs+=("$n     N$n")
+done
+echo "sizes            = ${SIZES_STR}" | tee -a "$sweep_log"
 
 for spec in "${runs[@]}"; do
     read -r n tag <<< "$spec"
