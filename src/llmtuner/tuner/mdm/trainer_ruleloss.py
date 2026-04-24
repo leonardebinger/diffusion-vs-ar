@@ -25,6 +25,7 @@ class RuleLossDiffusionTrainer(CustomDiffusionTrainer):
         super().__init__(*args, **kwargs)
         self._last_ce_loss: float = 0.0
         self._last_rule_loss: float = 0.0
+        self._last_lambda: float = float(self.diff_args.rule_loss_weight)
         self._digit_ids_cached: torch.Tensor = None
 
     def _digit_ids(self, device: torch.device) -> torch.Tensor:
@@ -78,12 +79,21 @@ class RuleLossDiffusionTrainer(CustomDiffusionTrainer):
             logits, src_mask=inputs["src_mask"], tokenizer=self.tokenizer, digit_ids=digit_ids
         )
 
-        lam = float(self.diff_args.rule_loss_weight)
+        lam_base = float(self.diff_args.rule_loss_weight)
+        schedule = getattr(self.diff_args, "rule_loss_schedule", "constant")
+        if schedule == "linear":
+            max_steps = max(1, int(self.args.max_steps))
+            frac = min(1.0, self.state.global_step / max_steps)
+            lam = lam_base * max(0.0, 1.0 - frac)
+        else:
+            lam = lam_base
+
         total = ce_loss + lam * rule_loss
 
         # Stash for log() override
         self._last_ce_loss = ce_loss.detach().float().item()
         self._last_rule_loss = rule_loss.detach().float().item()
+        self._last_lambda = lam
 
         return total
 
@@ -92,5 +102,6 @@ class RuleLossDiffusionTrainer(CustomDiffusionTrainer):
         logs = dict(logs)
         logs["ce_loss"] = self._last_ce_loss
         logs["rule_loss"] = self._last_rule_loss
-        logs["rule_loss_weight"] = float(self.diff_args.rule_loss_weight)
+        logs["rule_loss_weight"] = self._last_lambda  # effective λ (after schedule)
+        logs["rule_loss_weight_base"] = float(self.diff_args.rule_loss_weight)
         return super().log(logs, *args, **kwargs)

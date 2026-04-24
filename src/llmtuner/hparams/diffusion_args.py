@@ -38,6 +38,12 @@ class DiffusionArguments:
         metadata={"help": "λ for the Sudoku rule-based auxiliary loss. "
                           "0 (default) = baseline (rule loss off)."}
     )
+    rule_loss_schedule: str = field(
+        default="constant",
+        metadata={"help": "Schedule for λ over training. "
+                          "'constant' (default) = fixed at rule_loss_weight. "
+                          "'linear' = decays linearly from rule_loss_weight to 0 over max_steps."}
+    )
 
     def __post_init__(self):
         pass

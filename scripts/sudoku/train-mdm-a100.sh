@@ -57,6 +57,10 @@ else
     rule_loss_arg=()
 fi
 
+if [[ -n "${RULE_LOSS_SCHEDULE:-}" ]]; then
+    rule_loss_arg+=(--rule_loss_schedule "${RULE_LOSS_SCHEDULE}")
+fi
+
 if [[ -z "${RUN_DIR:-}" ]]; then
     run_name="sudoku-mdm-${RUN_TAG}-s${SEED}-$(date +%Y%m%d-%H%M%S)"
     RUN_DIR="$RUNS_DIR/$run_name"
@@ -71,6 +75,7 @@ mkdir -p "$RUN_DIR"
     echo "MAX_STEPS         = ${MAX_STEPS:-(unset; use epochs)}"
     echo "MAX_SAMPLES       = ${MAX_SAMPLES:-(full)}"
     echo "RULE_LOSS_WEIGHT  = ${RULE_LOSS_WEIGHT:-0.0}"
+    echo "RULE_LOSS_SCHEDULE= ${RULE_LOSS_SCHEDULE:-constant}"
     echo "SEED              = $SEED"
     echo "GPU               = $GPU"
     echo "commit            = $(git -C "$(dirname "$0")/../.." rev-parse HEAD 2>/dev/null || echo '?')"
