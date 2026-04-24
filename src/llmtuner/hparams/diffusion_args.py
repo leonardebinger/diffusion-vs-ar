@@ -44,6 +44,12 @@ class DiffusionArguments:
                           "'constant' (default) = fixed at rule_loss_weight. "
                           "'linear' = decays linearly from rule_loss_weight to 0 over max_steps."}
     )
+    rule_loss_kind: str = field(
+        default="collision",
+        metadata={"help": "Which rule-based auxiliary loss to compute. "
+                          "'collision' (default) = per-pair expected digit collision in [0, 1]. "
+                          "'permanent' = -log(perm(M)) summed over 27 peer sets (Ryser formula)."}
+    )
 
     def __post_init__(self):
         pass

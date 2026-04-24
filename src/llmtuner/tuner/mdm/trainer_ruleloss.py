@@ -18,6 +18,7 @@ from torch.nn.parallel.distributed import DistributedDataParallel as DDP
 
 from llmtuner.tuner.mdm.trainer import CustomDiffusionTrainer
 from llmtuner.tuner.mdm.rule_loss import compute_rule_loss, digit_token_ids
+from llmtuner.tuner.mdm.permanent_loss import compute_permanent_loss
 
 
 class RuleLossDiffusionTrainer(CustomDiffusionTrainer):
@@ -75,9 +76,17 @@ class RuleLossDiffusionTrainer(CustomDiffusionTrainer):
 
         # --- rule loss (the only addition vs. the parent) ---
         digit_ids = self._digit_ids(logits.device)
-        rule_loss = compute_rule_loss(
-            logits, src_mask=inputs["src_mask"], tokenizer=self.tokenizer, digit_ids=digit_ids
-        )
+        kind = getattr(self.diff_args, "rule_loss_kind", "collision")
+        if kind == "permanent":
+            rule_loss = compute_permanent_loss(
+                logits, src_mask=inputs["src_mask"], tokenizer=self.tokenizer,
+                digit_ids=digit_ids,
+            )
+        else:  # "collision" (default)
+            rule_loss = compute_rule_loss(
+                logits, src_mask=inputs["src_mask"], tokenizer=self.tokenizer,
+                digit_ids=digit_ids,
+            )
 
         lam_base = float(self.diff_args.rule_loss_weight)
         schedule = getattr(self.diff_args, "rule_loss_schedule", "constant")
@@ -104,4 +113,5 @@ class RuleLossDiffusionTrainer(CustomDiffusionTrainer):
         logs["rule_loss"] = self._last_rule_loss
         logs["rule_loss_weight"] = self._last_lambda  # effective λ (after schedule)
         logs["rule_loss_weight_base"] = float(self.diff_args.rule_loss_weight)
+        logs["rule_loss_kind"] = getattr(self.diff_args, "rule_loss_kind", "collision")
         return super().log(logs, *args, **kwargs)
