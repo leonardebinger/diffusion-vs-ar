@@ -36,6 +36,8 @@ SEED="${SEED:-42}"
 GPU="${GPU:-3}"
 DATASET_DIR="${DATASET_DIR:-$HOME/datasets/data/}"
 RUNS_DIR="${RUNS_DIR:-$HOME/logs}"
+# Random per-invocation port to avoid clashes with other concurrent runs.
+MAIN_PROCESS_PORT="${MAIN_PROCESS_PORT:-$((20000 + RANDOM % 10000))}"
 
 if [[ -n "${MAX_SAMPLES:-}" ]]; then
     default_tag="N${MAX_SAMPLES}"
@@ -90,7 +92,7 @@ mkdir -p "$RUN_DIR"
 
 # ---- Training ----
 CUDA_VISIBLE_DEVICES="$GPU" \
-accelerate launch --num_processes 1 --mixed_precision fp16 --main_process_port 20099 \
+accelerate launch --num_processes 1 --mixed_precision fp16 --main_process_port "$MAIN_PROCESS_PORT" \
 src/train_bash.py \
     --stage mdm --overwrite_output_dir \
     --cache_dir ./cache \
