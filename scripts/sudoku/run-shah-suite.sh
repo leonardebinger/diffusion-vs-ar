@@ -142,6 +142,9 @@ run_train() {
 }
 
 # ---- Helper: tune one loss kind over its λ grid ----
+# Writes selected λ to "$suite_dir/tune-${kind}/best_lambda.txt".
+# Does NOT use command substitution — so train output streams to terminal/log
+# normally and errors are visible.
 tune_loss() {
     local kind="$1" lambdas_str="$2"
     local tune_dir="$suite_dir/tune-${kind}"
@@ -150,21 +153,25 @@ tune_loss() {
     for lam in $lambdas_str; do
         local run_dir="$tune_dir/lam${lam}"
         echo "---- tune ${kind} λ=${lam} ----" | tee -a "$suite_log"
-        run_train "$run_dir" "tune-${kind}-lam${lam}" "$N_TUNE" "$MAX_STEPS_TUNE" "$kind" "$lam" 1 \
-            || { echo "FAILED at tune-${kind}-lam${lam}" | tee -a "$suite_log"; exit 1; }
+        if ! run_train "$run_dir" "tune-${kind}-lam${lam}" "$N_TUNE" "$MAX_STEPS_TUNE" "$kind" "$lam" 1; then
+            echo "FAILED at tune-${kind}-lam${lam} — see $run_dir/train.log" | tee -a "$suite_log"
+            exit 1
+        fi
     done
     echo "==== picking λ* for ${kind} ====" | tee -a "$suite_log"
+    pick_best_lambda "$tune_dir" > "$tune_dir/best_lambda.txt" 2>>"$suite_log"
     local best_lam
-    best_lam="$(pick_best_lambda "$tune_dir" 2> >(tee -a "$suite_log" >&2))"
+    best_lam="$(cat "$tune_dir/best_lambda.txt")"
     echo "λ*_${kind} = ${best_lam}" | tee -a "$suite_log"
-    echo "$best_lam"
 }
 
 # ---- Phase 1: collision λ tune ----
-lam_coll="$(tune_loss collision "$LAMBDAS_COLL_STR")"
+tune_loss collision "$LAMBDAS_COLL_STR"
+lam_coll="$(cat "$suite_dir/tune-collision/best_lambda.txt")"
 
 # ---- Phase 2: permanent λ tune ----
-lam_perm="$(tune_loss permanent "$LAMBDAS_PERM_STR")"
+tune_loss permanent "$LAMBDAS_PERM_STR"
+lam_perm="$(cat "$suite_dir/tune-permanent/best_lambda.txt")"
 
 # ---- Persist selected λs ----
 python3 - <<PY > "$lambdas_json"
