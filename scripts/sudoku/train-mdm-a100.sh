@@ -14,6 +14,7 @@
 #   RUNS_DIR            log/ckpt root                 (default: $HOME/logs)
 #   RUN_DIR             full path for this run's outputs (overrides auto-naming)
 #   RUN_TAG             label inserted into run dir   (default: auto)
+#   SKIP_PREDICT        if set to 1, skip post-train test predict   (default: unset)
 set -euo pipefail
 
 export WANDB_DISABLED=true
@@ -132,6 +133,12 @@ src/train_bash.py \
     2>&1 | tee "$RUN_DIR/train.log"
 
 # ---- Test-set evaluation ----
+if [[ "${SKIP_PREDICT:-0}" == "1" ]]; then
+    echo "SKIP_PREDICT=1 set; skipping --do_predict step."
+    echo "done: $RUN_DIR"
+    exit 0
+fi
+
 eval_dir="$RUN_DIR/sudoku_test"
 mkdir -p "$eval_dir"
 
